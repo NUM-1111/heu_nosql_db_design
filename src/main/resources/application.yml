@@ -2,9 +2,11 @@ server:
   port: 8080
 
 spring:
+  session:
+    store-type: none
   data:
     mongodb:
-      uri: mongodb://root:root@localhost:27017/ship_doc_db?authSource=admin
+      uri: mongodb://root:root@localhost:27018/ship_doc_db?authSource=admin
 
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
