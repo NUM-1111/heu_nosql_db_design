@@ -73,23 +73,19 @@ public class ComponentService {
         treeNodeConfig.setDeep(5);
 
         // 3. 内存中组装树
-        // ⚠️ 重点看这里：(node, data) -> {}
-        // node = 正在构建的树节点 (Hutool 的 Tree 对象)
-        // data = 你的原始数据 (ComponentDoc 对象)
-// 3. 内存中组装树
-        // 修正：不要写类型！不要写类型！直接用 (node, data)
+        // 修正参数顺序：(原始数据, 树节点)
+        // Hutool 规则：第一个参数是 List 里的实体，第二个参数是构建出来的 Tree 对象
         return TreeUtil.build(allComponents, null, treeNodeConfig,
-                (node, data) -> {
-                    // node 是 Hutool 的树节点 (目标)
-                    // data 是 你的 ComponentDoc (来源)
+                (component, treeNode) -> {
+                    // 逻辑：把 component (来源) 的数据 -> 塞给 treeNode (目标)
 
-                    node.setId(data.getId());
-                    node.setParentId(data.getParentId());
-                    node.setName(data.getName());
+                    treeNode.setId(component.getId());
+                    treeNode.setParentId(component.getParentId());
+                    treeNode.setName(component.getName());
 
                     // 扩展字段
-                    node.putExtra("type", data.getType());
-                    node.putExtra("specs", data.getSpecs());
+                    treeNode.putExtra("type", component.getType());
+                    treeNode.putExtra("specs", component.getSpecs());
                 });
     }
 
