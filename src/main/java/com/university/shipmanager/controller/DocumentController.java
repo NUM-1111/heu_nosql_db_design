@@ -2,11 +2,13 @@ package com.university.shipmanager.controller;
 
 import com.university.shipmanager.entity.mysql.DocIndex;
 import com.university.shipmanager.service.DocumentService;
+import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import java.util.List;
+import com.baomidou.mybatisplus.core.metadata.IPage;
 
 import java.util.Map;
 
@@ -58,16 +60,26 @@ public class DocumentController {
     }
 
     /**
-     * 获取文档列表 (支持搜索)
-     * GET /api/docs/list?shipId=888&keyword=手册
+     * 【新增】获取文件分类列表 (给前端下拉框用)
+     */
+    @GetMapping("/categories")
+    public List<String> getCategories() {
+        return List.of("Manual (手册)", "Drawing (图纸)", "Contract (合同)", "Report (报告)", "Certificate (证书)", "Other (其他)");
+    }
+
+    /**
+     * 【升级】获取文档列表 (分页版)
+     * GET /api/docs/list?page=1&size=10
      */
     @GetMapping("/list")
-    public List<DocIndex> list(
+    public IPage<DocIndex> list(
             @RequestParam Long shipId,
             @RequestParam(required = false) String componentId,
-            @RequestParam(required = false) String keyword // 【新增】
+            @RequestParam(required = false) String keyword,
+            @RequestParam(defaultValue = "1") int page,  // 默认第1页
+            @RequestParam(defaultValue = "10") int size  // 默认查10条 (防止 OOM)
     ) {
-        return documentService.listDocs(shipId, componentId, keyword);
+        return documentService.listDocs(shipId, componentId, keyword, page, size);
     }
 
     /**
@@ -77,5 +89,22 @@ public class DocumentController {
     @GetMapping("/{id}")
     public DocumentService.DocumentDetailVO getDetail(@PathVariable Long id) {
         return documentService.getDocumentDetail(id);
+    }
+
+    /**
+     * 【新增】更新文档信息
+     * PUT /api/docs/{id}
+     */
+    @PutMapping("/{id}")
+    public String update(@PathVariable Long id, @RequestBody UpdateDocRequest request) {
+        documentService.updateDocumentInfo(id, request.getTitle(), request.getCategory());
+        return "更新成功";
+    }
+
+    // DTO
+    @Data
+    public static class UpdateDocRequest {
+        private String title;
+        private String category;
     }
 }

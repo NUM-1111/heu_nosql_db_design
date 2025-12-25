@@ -18,6 +18,9 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+
 
 @Slf4j
 @Service
@@ -125,26 +128,28 @@ public class DocumentService {
     }
 
     /**
-     * 【升级】查询文档列表 (支持 搜索关键字)
+     * 【升级】分页查询文档
+     * @param pageNum 当前页码 (1开始)
+     * @param pageSize 每页条数
      */
-    public List<DocIndex> listDocs(Long shipId, String componentId, String keyword) {
+    public IPage<DocIndex> listDocs(Long shipId, String componentId, String keyword, int pageNum, int pageSize) {
         LambdaQueryWrapper<DocIndex> wrapper = new LambdaQueryWrapper<>();
 
         wrapper.eq(DocIndex::getShipId, shipId);
 
-        // 如果有关键字，就模糊查询标题 (SQL: title LIKE %keyword%)
         if (StrUtil.isNotBlank(keyword)) {
             wrapper.like(DocIndex::getTitle, keyword);
         }
 
-        // 只有在没搜索关键字时，才强制按 componentId 过滤
-        // 逻辑：如果我在搜"合同"，我希望看到整艘船所有的合同，不用管它在哪
         if (StrUtil.isBlank(keyword) && StrUtil.isNotBlank(componentId)) {
             wrapper.eq(DocIndex::getComponentId, componentId);
         }
 
         wrapper.orderByDesc(DocIndex::getCreatedAt);
-        return docIndexMapper.selectList(wrapper);
+
+        // 执行分页查询
+        // MyBatis Plus 会自动生成 LIMIT 0, 10 这种 SQL
+        return docIndexMapper.selectPage(new Page<>(pageNum, pageSize), wrapper);
     }
 
     /**
@@ -193,6 +198,19 @@ public class DocumentService {
         }
 
         log.info("级联删除了 {} 个文档，涉及零件: {}", docsToDelete.size(), componentIds);
+    }
+
+    /**
+     * 【新增】更新文档基本信息
+     */
+    public void updateDocumentInfo(Long id, String title, String category) {
+        DocIndex doc = docIndexMapper.selectById(id);
+        if (doc == null) throw new RuntimeException("文档不存在");
+
+        doc.setTitle(title);
+        doc.setCategory(category);
+        // 使用 MyBatis-Plus 的 updateById 更新
+        docIndexMapper.updateById(doc);
     }
 
 
