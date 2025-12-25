@@ -13,7 +13,8 @@
         .tree-wrapper { flex: 1; overflow-y: auto; padding: 10px; }
         .custom-tree-node { flex: 1; display: flex; align-items: center; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .main { flex: 1; padding: 30px; overflow-y: auto; background: #fff; display: flex; flex-direction: column; }
-        .search-bar { margin-bottom: 20px; display: flex; gap: 10px; }
+
+        .search-bar { margin-bottom: 20px; padding: 15px; background: #f2f6fc; border-radius: 4px; display: flex; align-items: center; }
         .empty-tip { text-align: center; margin-top: 150px; color: #909399; }
         .json-box { background: #282c34; color: #abb2bf; padding: 15px; border-radius: 4px; font-family: monospace; font-size: 12px; max-height: 300px; overflow: auto; }
         .kv-row { display: flex; gap: 10px; margin-bottom: 8px; }
@@ -23,20 +24,23 @@
 <body>
 <div id="app">
     <div class="header">
-        <div style="font-size: 20px; font-weight: bold;"><i class="el-icon-ship"></i> 船舶文档管理 V5.1 (修改版)</div>
-        <el-tag effect="dark" type="warning" size="small">ID: {{ shipId }}</el-tag>
+        <div style="font-size: 20px; font-weight: bold;"><i class="el-icon-ship"></i> 船舶文档管理 V6.1 (修复版)</div>
+        <div>
+            <el-button type="text" style="color: white; margin-right: 10px;" icon="el-icon-s-home" @click="goDashboard">返回驾驶舱</el-button>
+            <el-tag effect="dark" type="warning" size="small">当前船舶 ID: {{ shipId }}</el-tag>
+        </div>
     </div>
 
     <div class="container">
         <div class="aside">
             <div class="tree-toolbar">
                 <el-button type="primary" size="mini" icon="el-icon-refresh" circle @click="loadTree" title="刷新"></el-button>
-                <el-button type="success" size="mini" icon="el-icon-plus" @click="openDialog(null)">根节点</el-button>
-                <el-button type="danger" size="mini" @click="initTree">重置</el-button>
+                <el-button type="danger" size="mini" @click="initTree">重置测试数据</el-button>
                 <el-button type="info" size="mini" @click="viewAuditLogs">日志</el-button>
             </div>
             <div class="tree-wrapper">
                 <el-tree
+                        :key="treeKey"
                         ref="tree" :data="treeData" :props="defaultProps" @node-click="handleNodeClick"
                         default-expand-all highlight-current node-key="id" draggable :allow-drop="allowDrop" @node-drop="handleDrop">
                     <span class="custom-tree-node" slot-scope="{ node, data }">
@@ -48,61 +52,67 @@
 
         <div class="main">
             <div class="search-bar">
-                <el-input placeholder="搜索文档 (回车查询)" v-model="query.keyword" @keyup.enter.native="doSearch" clearable @clear="doSearch" prefix-icon="el-icon-search">
-                    <el-button slot="append" @click="doSearch">搜索</el-button>
+                <span style="margin-right: 10px; font-weight: bold; color: #606266;">全文检索:</span>
+                <el-input placeholder="输入文档标题关键词..." v-model="query.keyword" @keyup.enter.native="doSearch" clearable @clear="doSearch" style="width: 300px;">
+                    <el-button slot="append" icon="el-icon-search" @click="doSearch"></el-button>
                 </el-input>
             </div>
 
             <div v-if="currentPart || isSearching">
-                <div v-if="!isSearching" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                    <div>
-                        <h2 style="margin:0 0 5px 0;"><i :class="getIcon(currentPart.type)"></i> {{ currentPart.name }}</h2>
-                        <el-tag size="mini">{{ currentPart.type }}</el-tag>
+                <div v-if="!isSearching">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                        <div>
+                            <h2 style="margin:0 0 5px 0;"><i :class="getIcon(currentPart.type)"></i> {{ currentPart.name }}</h2>
+                            <el-tag size="mini">{{ currentPart.type }}</el-tag>
+                            <span style="color:#999;font-size:12px;margin-left:10px">ID: {{ currentPart.id }}</span>
+                        </div>
+                        <div>
+                            <el-button type="primary" size="small" icon="el-icon-edit" @click="openDialog(currentPart, true)">编辑部件</el-button>
+                            <el-button type="success" size="small" icon="el-icon-folder-add" @click="openDialog(currentPart, false)">加子项</el-button>
+                            <el-button v-if="currentPart.type !== 'Ship'" type="danger" size="small" icon="el-icon-delete" @click="deletePart">删除</el-button>
+                        </div>
                     </div>
-                    <div>
-                        <el-button type="primary" size="small" icon="el-icon-edit" @click="openDialog(currentPart, true)">编辑部件</el-button>
-                        <el-button type="success" size="small" icon="el-icon-folder-add" @click="openDialog(currentPart, false)">加子项</el-button>
-                        <el-button type="danger" size="small" icon="el-icon-delete" @click="deletePart">删除</el-button>
-                    </div>
-                </div>
 
-                <el-divider content-position="left">文档列表 (分页)</el-divider>
-
-                <div v-if="!isSearching" style="margin-bottom: 10px;">
-                    <el-button type="primary" size="small" icon="el-icon-upload2" @click="openUploadDialog">上传新文档</el-button>
-                </div>
-
-                <el-table :data="docList" style="width: 100%" stripe v-loading="loading">
-                    <el-table-column prop="title" label="文档标题" min-width="200"></el-table-column>
-                    <el-table-column prop="category" label="分类" width="150">
-                        <template slot-scope="scope"><el-tag size="mini">{{ scope.row.category }}</el-tag></template>
-                    </el-table-column>
-                    <el-table-column prop="createdAt" label="时间" width="160">
-                        <template slot-scope="scope">{{ formatDate(scope.row.createdAt) }}</template>
-                    </el-table-column>
-                    <el-table-column label="操作" width="180" align="center">
-                        <template slot-scope="scope">
-                            <el-button size="mini" type="text" icon="el-icon-edit" @click="openEditDocDialog(scope.row)">编辑</el-button>
-                            <el-button size="mini" type="text" icon="el-icon-view" @click="showDocDetail(scope.row.id)">详情/下载</el-button>
+                    <el-descriptions border :column="2" size="small" title="⚙️ NoSQL 动态参数">
+                        <template v-if="currentPart.specs && Object.keys(currentPart.specs).length > 0">
+                            <el-descriptions-item v-for="(val, key) in currentPart.specs" :key="key" :label="key">{{ val }}</el-descriptions-item>
                         </template>
-                    </el-table-column>
-                </el-table>
+                        <template v-else><el-descriptions-item label="状态">暂无参数 (请点击编辑添加)</el-descriptions-item></template>
+                    </el-descriptions>
+                    <el-divider content-position="left">📄 关联文档</el-divider>
 
-                <div class="pagination-container">
-                    <el-pagination
-                            @size-change="handleSizeChange"
-                            @current-change="handlePageChange"
-                            :current-page="query.page"
-                            :page-sizes="[10, 20, 50, 100]"
-                            :page-size="query.size"
-                            layout="total, sizes, prev, pager, next, jumper"
-                            :total="totalDocs">
-                    </el-pagination>
+                    <div style="margin-bottom: 10px;">
+                        <el-button type="primary" size="small" icon="el-icon-upload2" @click="openUploadDialog">上传新文档</el-button>
+                    </div>
+                </div>
+
+                <div v-if="isSearching || currentPart">
+                    <el-table :data="docList" style="width: 100%" stripe v-loading="loading">
+                        <el-table-column prop="title" label="文档标题" min-width="200"></el-table-column>
+                        <el-table-column prop="category" label="分类" width="150">
+                            <template slot-scope="scope"><el-tag size="mini">{{ scope.row.category }}</el-tag></template>
+                        </el-table-column>
+                        <el-table-column prop="createdAt" label="时间" width="160">
+                            <template slot-scope="scope">{{ formatDate(scope.row.createdAt) }}</template>
+                        </el-table-column>
+                        <el-table-column label="操作" width="180" align="center">
+                            <template slot-scope="scope">
+                                <el-button size="mini" type="text" icon="el-icon-edit" @click="openEditDocDialog(scope.row)">编辑</el-button>
+                                <el-button size="mini" type="text" icon="el-icon-view" @click="showDocDetail(scope.row.id)">详情/下载</el-button>
+                            </template>
+                        </el-table-column>
+                    </el-table>
+
+                    <div class="pagination-container">
+                        <el-pagination @size-change="handleSizeChange" @current-change="handlePageChange" :current-page="query.page" :page-sizes="[10, 20, 50]" :page-size="query.size" layout="total, sizes, prev, pager, next, jumper" :total="totalDocs"></el-pagination>
+                    </div>
                 </div>
             </div>
 
             <div v-else class="empty-tip">
-                <i class="el-icon-top-left" style="font-size: 30px;"></i><br>请选择左侧节点
+                <i class="el-icon-s-unfold" style="font-size: 40px; color: #ddd;"></i><br>
+                请点击左侧树节点查看详情<br>
+                <span style="font-size: 12px; color: #ccc;">(根节点已自动生成)</span>
             </div>
         </div>
     </div>
@@ -114,6 +124,7 @@
                 <el-select v-model="form.type" style="width: 100%"><el-option v-for="t in types" :key="t" :label="t" :value="t"></el-option></el-select>
             </el-form-item>
             <div style="background: #f4f4f5; padding: 10px; border-radius: 4px;">
+                <div style="margin-bottom: 10px; font-size: 12px; color: #909399;">动态参数 (Specs)</div>
                 <div v-for="(item, index) in form.kvList" :key="index" class="kv-row">
                     <el-input v-model="item.key" placeholder="Key" size="small"></el-input>
                     <el-input v-model="item.val" placeholder="Value" size="small"></el-input>
@@ -127,48 +138,30 @@
 
     <el-dialog title="上传文档" :visible.sync="uploadVisible" width="500px">
         <el-form label-width="80px">
-            <el-form-item label="所属部件">
-                <el-input :value="currentPart ? currentPart.name : ''" disabled></el-input>
-            </el-form-item>
+            <el-form-item label="所属部件"><el-input :value="currentPart ? currentPart.name : ''" disabled></el-input></el-form-item>
             <el-form-item label="文档分类" required>
-                <el-select v-model="uploadForm.category" placeholder="请选择" style="width: 100%">
-                    <el-option v-for="c in categories" :key="c" :label="c" :value="c"></el-option>
-                </el-select>
+                <el-select v-model="uploadForm.category" style="width: 100%"><el-option v-for="c in categories" :key="c" :label="c" :value="c"></el-option></el-select>
             </el-form-item>
-            <el-form-item label="选择文件" required>
-                <input type="file" ref="fileInput" @change="handleFileChange">
-            </el-form-item>
+            <el-form-item label="选择文件" required><input type="file" ref="fileInput" @change="handleFileChange"></el-form-item>
         </el-form>
-        <div slot="footer">
-            <el-button @click="uploadVisible = false">取消</el-button>
-            <el-button type="primary" @click="submitUpload" :loading="uploading">开始上传</el-button>
-        </div>
+        <div slot="footer"><el-button @click="uploadVisible = false">取消</el-button><el-button type="primary" @click="submitUpload" :loading="uploading">开始上传</el-button></div>
     </el-dialog>
 
     <el-dialog title="修改文档信息" :visible.sync="editDocVisible" width="500px">
-        <el-form label-width="80px" :model="editDocForm">
-            <el-form-item label="标题" required>
-                <el-input v-model="editDocForm.title"></el-input>
-            </el-form-item>
+        <el-form label-width="80px">
+            <el-form-item label="标题" required><el-input v-model="editDocForm.title"></el-input></el-form-item>
             <el-form-item label="分类" required>
-                <el-select v-model="editDocForm.category" style="width: 100%">
-                    <el-option v-for="c in categories" :key="c" :label="c" :value="c"></el-option>
-                </el-select>
+                <el-select v-model="editDocForm.category" style="width: 100%"><el-option v-for="c in categories" :key="c" :label="c" :value="c"></el-option></el-select>
             </el-form-item>
         </el-form>
-        <div slot="footer">
-            <el-button @click="editDocVisible = false">取消</el-button>
-            <el-button type="primary" @click="submitDocEdit">保存修改</el-button>
-        </div>
+        <div slot="footer"><el-button @click="editDocVisible = false">取消</el-button><el-button type="primary" @click="submitDocEdit">保存</el-button></div>
     </el-dialog>
 
     <el-dialog title="文档全息视图" :visible.sync="docDialogVisible" width="600px">
         <div v-if="currentDocDetail">
             <div class="json-box">{{ currentDocDetail.metadata ? JSON.stringify(currentDocDetail.metadata, null, 2) : '{}' }}</div>
-            <h4 style="margin: 15px 0 5px;">版本历史</h4>
             <div v-for="(v, index) in currentDocDetail.versions" :key="index" style="padding: 10px; border-bottom: 1px solid #eee;">
-                <span style="font-weight: bold;">{{ v.versionNo }}</span>
-                <span style="font-size: 12px; margin-left: 10px;">{{ (v.fileSize/1024).toFixed(1) }} KB</span>
+                <span style="font-weight: bold;">{{ v.versionNo }}</span> <span style="font-size: 12px;">{{ (v.fileSize/1024).toFixed(1) }} KB</span>
                 <el-link type="primary" :href="v.downloadUrl" target="_blank" style="float: right;">在线预览</el-link>
             </div>
         </div>
@@ -183,93 +176,47 @@
     new Vue({
         el: '#app',
         data: {
-            // 核心数据
+            treeKey: 0, // 强制刷新树的 Key
             treeData: [], defaultProps: { children: 'children', label: 'name' },
-            currentPart: null, docList: [], shipId: 888, types: ['Ship', 'System', 'Engine', 'Pump', 'Valve', 'Other'],
-
-            // 【前端写死分类，更符合你的直觉】
+            currentPart: null, docList: [], types: ['System', 'Engine', 'Pump', 'Valve', 'Other'],
             categories: ["Manual (手册)", "Drawing (图纸)", "Contract (合同)", "Report (报告)", "Certificate (证书)", "Other (其他)"],
-
-            // 查询状态
-            loading: false, isSearching: false, totalDocs: 0,
-            query: { page: 1, size: 10, keyword: '' },
-
-            // 弹窗状态 (组件增删改)
+            loading: false, isSearching: false, totalDocs: 0, query: { page: 1, size: 10, keyword: '' },
             dialogVisible: false, dialogTitle: '', isEditMode: false, form: { id: null, name: '', type: '', parentId: null, kvList: [] },
-
-            // 上传相关
             uploadVisible: false, uploading: false, uploadForm: { category: '', file: null },
-
-            // 文档编辑相关
             editDocVisible: false, editDocForm: { id: null, title: '', category: '' },
-
-            docDialogVisible: false, currentDocDetail: null
+            docDialogVisible: false, currentDocDetail: null,
+            shipId: new URLSearchParams(window.location.search).get('shipId') || 888
         },
-        mounted() {
-            this.loadTree();
-        },
+        mounted() { this.loadTree(); },
         methods: {
+            goDashboard() { window.location.href = 'dashboard.html'; },
             getIcon(type) { const m = { 'Ship': 'el-icon-ship', 'System': 'el-icon-cpu', 'Engine': 'el-icon-odometer' }; return m[type] || 'el-icon-setting'; },
             formatDate(str) { return str ? str.replace('T', ' ').split('.')[0] : ''; },
-            loadTree() { axios.get(`/api/components/tree?shipId=${this.shipId}`).then(res => this.treeData = res.data); },
-
-            // --- 分页列表 ---
+            loadTree() {
+                axios.get(`/api/components/tree?shipId=${this.shipId}`).then(res => {
+                    this.treeData = res.data;
+                    this.treeKey++; // 每次加载数据，强制组件重新渲染 (解决子节点不显示问题)
+                });
+            },
             loadDocs() {
                 this.loading = true;
                 const params = { shipId: this.shipId, page: this.query.page, size: this.query.size, keyword: this.query.keyword };
                 if (!this.isSearching && this.currentPart) params.componentId = this.currentPart.id;
-
-                axios.get('/api/docs/list', { params }).then(res => {
-                    this.docList = res.data.records;
-                    this.totalDocs = res.data.total;
-                    this.loading = false;
-                }).catch(() => this.loading = false);
+                axios.get('/api/docs/list', { params }).then(res => { this.docList = res.data.records; this.totalDocs = res.data.total; this.loading = false; }).catch(() => this.loading = false);
             },
-            doSearch() {
-                this.query.page = 1;
-                if(!this.query.keyword) { this.isSearching = false; if(this.currentPart) this.loadDocs(); return; }
-                this.isSearching = true; this.currentPart = null; this.$refs.tree.setCurrentKey(null);
-                this.loadDocs();
-            },
+            doSearch() { this.query.page = 1; if(!this.query.keyword) { this.isSearching = false; if(this.currentPart) this.loadDocs(); return; } this.isSearching = true; this.currentPart = null; this.$refs.tree.setCurrentKey(null); this.loadDocs(); },
             handleSizeChange(val) { this.query.size = val; this.loadDocs(); },
             handlePageChange(val) { this.query.page = val; this.loadDocs(); },
             handleNodeClick(data) { this.isSearching = false; this.query.keyword = ''; this.query.page = 1; this.currentPart = data; this.loadDocs(); },
-
-            // --- 上传逻辑 ---
-            openUploadDialog() {
-                this.uploadForm = { category: '', file: null };
-                this.uploadVisible = true;
-                if(this.$refs.fileInput) this.$refs.fileInput.value = '';
-            },
+            openUploadDialog() { this.uploadForm = { category: '', file: null }; this.uploadVisible = true; if(this.$refs.fileInput) this.$refs.fileInput.value = ''; },
             handleFileChange(e) { this.uploadForm.file = e.target.files[0]; },
             submitUpload() {
                 if(!this.uploadForm.file || !this.uploadForm.category) { this.$message.warning('请填写完整'); return; }
-                let d = new FormData();
-                d.append('file', this.uploadForm.file);
-                d.append('shipId', this.shipId);
-                d.append('componentId', this.currentPart.id);
-                d.append('title', this.uploadForm.file.name);
-                d.append('category', this.uploadForm.category);
-                this.uploading = true;
-                axios.post('/api/docs/upload', d).then(() => {
-                    this.uploading = false; this.uploadVisible = false; this.$message.success('上传成功'); this.loadDocs();
-                }).catch(() => { this.uploading = false; this.$message.error('失败'); });
+                let d = new FormData(); d.append('file', this.uploadForm.file); d.append('shipId', this.shipId); d.append('componentId', this.currentPart.id); d.append('title', this.uploadForm.file.name); d.append('category', this.uploadForm.category);
+                this.uploading = true; axios.post('/api/docs/upload', d).then(() => { this.uploading = false; this.uploadVisible = false; this.$message.success('上传成功'); this.loadDocs(); }).catch(() => { this.uploading = false; this.$message.error('失败'); });
             },
-
-            // --- 【新增】文档修改逻辑 ---
-            openEditDocDialog(row) {
-                this.editDocForm = { id: row.id, title: row.title, category: row.category };
-                this.editDocVisible = true;
-            },
-            submitDocEdit() {
-                axios.put(`/api/docs/${this.editDocForm.id}`, this.editDocForm).then(() => {
-                    this.$message.success('修改成功');
-                    this.editDocVisible = false;
-                    this.loadDocs(); // 刷新列表
-                });
-            },
-
-            // 其他
+            openEditDocDialog(row) { this.editDocForm = { id: row.id, title: row.title, category: row.category }; this.editDocVisible = true; },
+            submitDocEdit() { axios.put(`/api/docs/${this.editDocForm.id}`, this.editDocForm).then(() => { this.$message.success('修改成功'); this.editDocVisible = false; this.loadDocs(); }); },
             showDocDetail(id) { axios.get(`/api/docs/${id}`).then(res => { this.currentDocDetail = res.data; this.docDialogVisible = true; }); },
             viewAuditLogs() { this.$alert('请前往 Mongo Express (localhost:8081) 查看日志', '审计'); },
             allowDrop(n, d, t) { return true; },
@@ -279,8 +226,18 @@
             },
             openDialog(node, isEdit) {
                 this.isEditMode = isEdit; this.form.kvList = [];
-                if (isEdit) { this.dialogTitle = `编辑: ${node.name}`; this.form.id = node.id; this.form.name = node.name; this.form.type = node.type; if(node.specs) for(let k in node.specs) this.form.kvList.push({key:k, val:node.specs[k]}); }
-                else { this.dialogTitle = node ? `新增子节点` : '新增根节点'; this.form.id = null; this.form.name = ''; this.form.type = ''; this.form.parentId = node ? node.id : null; }
+                // 校验：如果是新增，必须选中父节点（因为根节点是自动生成的）
+                if (!isEdit && !node) { this.$message.warning('请在左侧选中父节点后，再添加子项'); return; }
+
+                if (isEdit) {
+                    this.dialogTitle = `编辑: ${node.name}`;
+                    this.form.id = node.id; this.form.name = node.name; this.form.type = node.type;
+                    if(node.specs) for(let k in node.specs) this.form.kvList.push({key:k, val:node.specs[k]});
+                } else {
+                    this.dialogTitle = `新增 [${node.name}] 的子部件`;
+                    this.form.id = null; this.form.name = ''; this.form.type = '';
+                    this.form.parentId = node.id; // 👈 关键修复：确保传了父ID
+                }
                 this.dialogVisible = true;
             },
             addKv() { this.form.kvList.push({ key: '', val: '' }); },
@@ -289,9 +246,19 @@
                 let specs = {}; this.form.kvList.forEach(i => { if(i.key) specs[i.key] = i.val });
                 let payload = { shipId: this.shipId, name: this.form.name, type: this.form.type, specs: specs, parentId: this.form.parentId };
                 let req = this.isEditMode ? axios.put(`/api/components/${this.form.id}`, payload) : axios.post('/api/components', payload);
-                req.then(() => { this.$message.success('成功'); this.dialogVisible = false; this.loadTree(); if(this.isEditMode && this.currentPart) { this.currentPart.name = this.form.name; this.currentPart.specs = specs; } });
+                req.then(() => {
+                    this.$message.success('成功');
+                    this.dialogVisible = false;
+                    this.loadTree();
+                    // 编辑后简单刷新当前视图
+                    if(this.isEditMode && this.currentPart) {
+                        this.currentPart.name = this.form.name;
+                        this.currentPart.type = this.form.type;
+                        this.currentPart.specs = specs;
+                    }
+                });
             },
-            initTree() { this.$confirm('重置？').then(() => axios.get('/test/tree').then(res => { this.treeData = res.data; this.loadTree(); })); },
+            initTree() { this.$confirm('确定重置测试数据？').then(() => axios.get('/test/tree').then(res => { this.treeData = res.data; this.loadTree(); })); },
             deletePart() { this.$confirm('删除？').then(() => axios.delete(`/api/components/${this.currentPart.id}`).then(() => { this.$message.success('已删除'); this.currentPart = null; this.loadTree(); })); }
         }
     })

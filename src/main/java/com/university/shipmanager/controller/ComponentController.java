@@ -9,7 +9,9 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
+import lombok.extern.slf4j.Slf4j; // 1. 记得引入这个
 
+@Slf4j
 @RestController
 @RequestMapping("/api/components")
 @RequiredArgsConstructor
@@ -26,18 +28,33 @@ public class ComponentController {
     }
 
     /**
-     * 【新增】创建新零件 (节点)
-     * POST /api/components
+     * 【新增】创建新零件 (带日志版)
      */
     @PostMapping
     public ComponentDoc create(@RequestBody CreateRequest request) {
-        return componentService.createComponent(
-                request.getShipId(),
-                request.getName(),
-                request.getType(),
-                request.getParentId(),
-                request.getSpecs()
-        );
+        // 🔍 探头 1：打印接收到的参数
+        log.info("【收到创建请求】 船ID: {}, 名称: {}, 类型: {}, 父节点ID: {}",
+                request.getShipId(), request.getName(), request.getType(), request.getParentId());
+
+        // 打印动态参数 (看看 specs 传没传)
+        log.info(" -> 动态参数 Specs: {}", request.getSpecs());
+
+        try {
+            ComponentDoc created = componentService.createComponent(
+                    request.getShipId(),
+                    request.getName(),
+                    request.getType(),
+                    request.getParentId(),
+                    request.getSpecs()
+            );
+            // 🔍 探头 2：打印成功结果
+            log.info("【创建成功】 新节点ID: {}", created.getId());
+            return created;
+        } catch (Exception e) {
+            // 🔍 探头 3：打印报错原因 (这一步非常关键！)
+            log.error("【创建失败】 发生异常: ", e);
+            throw e; // 继续抛出，让全局异常处理器处理
+        }
     }
 
     /**

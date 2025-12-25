@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>船舶管理驾驶舱</title>
+    <link rel="stylesheet" href="https://unpkg.com/element-ui/lib/theme-chalk/index.css">
+    <style>
+        body { background: #f0f2f5; padding: 20px; font-family: "Helvetica Neue",Helvetica,"PingFang SC",Arial,sans-serif; }
+        .title { margin-bottom: 20px; color: #303133; font-weight: bold; border-left: 5px solid #409EFF; padding-left: 10px; }
+        .ship-container { display: flex; flex-wrap: wrap; }
+        .ship-card { width: 280px; margin: 15px; cursor: pointer; transition: all 0.3s; position: relative; }
+        .ship-card:hover { transform: translateY(-5px); box-shadow: 0 10px 20px rgba(0,0,0,0.1); }
+
+        .add-card { border: 2px dashed #d9d9d9; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #999; height: 180px; background: white; cursor: pointer; border-radius: 4px; transition: all 0.3s; }
+        .add-card:hover { border-color: #409EFF; color: #409EFF; }
+
+        .card-content { text-align: center; padding: 20px; position: relative; }
+        .big-icon { font-size: 50px; margin-bottom: 15px; color: #409EFF; }
+        .ship-name { font-size: 18px; font-weight: bold; margin-bottom: 5px; color: #303133; }
+        .ship-info { color: #909399; font-size: 13px; margin-bottom: 10px; }
+
+        /* 删除按钮样式 */
+        .del-btn { position: absolute; top: 10px; right: 10px; color: #F56C6C; display: none; padding: 5px; }
+        .ship-card:hover .del-btn { display: block; }
+    </style>
+</head>
+<body>
+<div id="app">
+    <h2 class="title">🚢 船舶资产管理中心</h2>
+
+    <div class="ship-container">
+        <div v-for="ship in ships" :key="ship.id" class="ship-card">
+            <el-card :body-style="{ padding: '0px', height: '180px' }" shadow="hover">
+                <div class="card-content" @click="enterShip(ship.id)">
+                    <i class="el-icon-ship big-icon"></i>
+                    <div class="ship-name">{{ ship.name || '未命名' }}</div>
+                    <div class="ship-info">ID: {{ ship.id }} | 舷号: {{ ship.code }}</div>
+                    <el-tag size="mini" type="success" effect="dark">运营中</el-tag>
+                </div>
+                <el-button class="del-btn" icon="el-icon-delete" type="text" @click.stop="deleteShip(ship)"></el-button>
+            </el-card>
+        </div>
+
+        <div class="add-card" @click="dialogVisible = true" style="width: 280px; margin: 15px;">
+            <i class="el-icon-plus" style="font-size: 40px; margin-bottom: 10px;"></i>
+            <div>注册新船舶</div>
+        </div>
+    </div>
+
+    <el-dialog title="注册新船舶" :visible.sync="dialogVisible" width="400px">
+        <el-form :model="form" label-width="80px">
+            <el-form-item label="船名" required><el-input v-model="form.name" placeholder="例如：山东号"></el-input></el-form-item>
+            <el-form-item label="舷号" required><el-input v-model="form.code" placeholder="例如：CV-17"></el-input></el-form-item>
+            <el-form-item label="船东"><el-input v-model="form.owner"></el-input></el-form-item>
+        </el-form>
+        <div slot="footer">
+            <el-button @click="dialogVisible = false">取消</el-button>
+            <el-button type="primary" @click="createShip">立即注册</el-button>
+        </div>
+    </el-dialog>
+</div>
+
+<script src="https://unpkg.com/vue@2/dist/vue.js"></script>
+<script src="https://unpkg.com/element-ui/lib/index.js"></script>
+<script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+<script>
+    new Vue({
+        el: '#app',
+        data: {
+            ships: [],
+            dialogVisible: false,
+            form: { name: '', code: '', owner: '' }
+        },
+        mounted() { this.loadShips(); },
+        methods: {
+            loadShips() {
+                axios.get('/api/ships').then(res => {
+                    // 过滤掉没有ID的脏数据 (前端兜底)
+                    this.ships = res.data.filter(s => s.id != null);
+                });
+            },
+            createShip() {
+                if(!this.form.name || !this.form.code) {
+                    this.$message.warning('请填写船名和舷号');
+                    return;
+                }
+                axios.post('/api/ships', this.form).then(() => {
+                    this.$message.success('注册成功');
+                    this.dialogVisible = false;
+                    this.form = { name: '', code: '', owner: '' }; // 清空表单
+                    this.loadShips();
+                });
+            },
+            deleteShip(ship) {
+                this.$confirm(`确定要删除 [${ship.name}] 及其所有数据吗？`, '警告', {
+                    confirmButtonText: '确定删除',
+                    cancelButtonText: '取消',
+                    type: 'warning'
+                }).then(() => {
+                    axios.delete(`/api/ships/${ship.id}`).then(() => {
+                        this.$message.success('删除成功');
+                        this.loadShips();
+                    });
+                });
+            },
+            enterShip(id) {
+                // 跳转
+                window.location.href = `index.html?shipId=${id}`;
+            }
+        }
+    })
+</script>
+</body>
+</html>

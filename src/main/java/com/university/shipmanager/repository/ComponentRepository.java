@@ -15,4 +15,9 @@ public interface ComponentRepository extends MongoRepository<ComponentDoc, Strin
     // 高级查询：找某个节点的所有后代（用于删除子树或展示整棵树）
     // MongoDB 语法: { ancestors: "目标ID" }
     List<ComponentDoc> findByAncestorsContaining(String ancestorId);
+
+    // 【新增】统计某艘船的根节点数量 (ParentId 为 null 的就是根)
+    long countByShipIdAndParentIdIsNull(Long shipId);
+
+    void deleteByShipId(Long shipId);
 }

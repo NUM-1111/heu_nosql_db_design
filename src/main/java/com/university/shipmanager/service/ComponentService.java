@@ -27,25 +27,51 @@ public class ComponentService {
     private final DocumentService documentService;
     private final AuditLogRepository auditLogRepository; // 【修复】注入日志库
 
-    // ... createComponent 和 getShipBomTree 保持不变 ...
     public ComponentDoc createComponent(Long shipId, String name, String type, String parentId, Map<String, Object> specs) {
-        if (StrUtil.isBlank(name) || StrUtil.isBlank(type)) throw new IllegalArgumentException("名称和类型不能为空");
+        log.info("Service层开始处理: name={}, parentId={}", name, parentId);
+
+        // 1. 校验
+        if (StrUtil.isBlank(name) || StrUtil.isBlank(type)) {
+            log.error("创建失败：名称或类型为空");
+            throw new IllegalArgumentException("名称和类型不能为空");
+        }
+
         ComponentDoc component = new ComponentDoc();
         component.setShipId(shipId);
         component.setName(name);
         component.setType(type);
         component.setSpecs(specs);
+
+        // 2. 树形逻辑处理
         if (parentId != null) {
+            log.info("正在查找父节点: {}", parentId);
             component.setParentId(parentId);
-            ComponentDoc parent = componentRepository.findById(parentId).orElseThrow(() -> new RuntimeException("父节点不存在"));
+
+            // 查出父节点
+            ComponentDoc parent = componentRepository.findById(parentId)
+                    .orElseThrow(() -> {
+                        log.error("致命错误：父节点 {} 在 MongoDB 里找不到！", parentId);
+                        return new RuntimeException("父节点不存在 (ID: " + parentId + ")");
+                    });
+
             List<String> ancestors = new ArrayList<>();
-            if (parent.getAncestors() != null) ancestors.addAll(parent.getAncestors());
+            if (parent.getAncestors() != null) {
+                ancestors.addAll(parent.getAncestors());
+            }
             ancestors.add(parent.getId());
             component.setAncestors(ancestors);
+
+            log.info("父节点存在，计算出祖先路径: {}", ancestors);
         } else {
+            // ... (根节点逻辑) ...
+            log.info("没有父节点ID，正在创建为根节点...");
             component.setAncestors(new ArrayList<>());
         }
-        return componentRepository.save(component);
+
+        // 3. 保存
+        ComponentDoc saved = componentRepository.save(component);
+        log.info("保存到 MongoDB 成功! ID: {}", saved.getId());
+        return saved;
     }
 
     public List<Tree<String>> getShipBomTree(Long shipId) {
@@ -161,5 +187,12 @@ public class ComponentService {
             child.setAncestors(updated);
             componentRepository.save(child);
         }
+    }
+
+    /**
+     * 【新增】删除整艘船的结构
+     */
+    public void deleteShipTree(Long shipId) {
+        componentRepository.deleteByShipId(shipId);
     }
 }
