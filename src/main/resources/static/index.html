@@ -5,69 +5,159 @@
     <title>船舶工程文档管理系统</title>
     <link rel="stylesheet" href="https://unpkg.com/element-ui/lib/theme-chalk/index.css">
     <style>
-        body { margin: 0; padding: 0; font-family: "Helvetica Neue",Helvetica,"PingFang SC",Arial,sans-serif; }
-        .header { background-color: #409EFF; color: white; padding: 20px; font-size: 24px; font-weight: bold; }
-        .container { display: flex; height: calc(100vh - 70px); }
-        .aside { width: 300px; border-right: 1px solid #eee; padding: 20px; overflow-y: auto; }
-        .main { flex: 1; padding: 20px; overflow-y: auto; }
-        .empty-tip { color: #909399; text-align: center; margin-top: 100px; }
+        body { margin: 0; padding: 0; font-family: "Helvetica Neue",Helvetica,"PingFang SC",Arial,sans-serif; background: #f5f7fa; }
+        .header { background-color: #409EFF; color: white; padding: 0 20px; height: 60px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 4px rgba(0,0,0,.12); }
+        .container { display: flex; height: calc(100vh - 60px); }
+
+        /* 左侧树 */
+        .aside { width: 340px; border-right: 1px solid #e6e6e6; background-color: #fff; display: flex; flex-direction: column; }
+        .tree-toolbar { padding: 10px; border-bottom: 1px solid #eee; display: flex; gap: 5px; background: #fafafa; }
+        .tree-wrapper { flex: 1; overflow-y: auto; padding: 10px; }
+        .custom-tree-node { flex: 1; display: flex; align-items: center; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+        /* 右侧主内容 */
+        .main { flex: 1; padding: 30px; overflow-y: auto; background: #fff; display: flex; flex-direction: column; }
+        .search-bar { margin-bottom: 20px; display: flex; gap: 10px; }
+
+        .empty-tip { text-align: center; margin-top: 150px; color: #909399; }
+        .json-box { background: #282c34; color: #abb2bf; padding: 15px; border-radius: 4px; font-family: monospace; font-size: 12px; max-height: 300px; overflow: auto; }
+        .kv-row { display: flex; gap: 10px; margin-bottom: 8px; }
     </style>
 </head>
 <body>
 <div id="app">
-    <div class="header">🚢 船舶工程文档管理系统 (NoSQL Demo)</div>
+    <div class="header">
+        <div style="font-size: 20px; font-weight: bold;"><i class="el-icon-ship"></i> 船舶文档管理 V4.0</div>
+        <el-tag effect="dark" type="warning" size="small">ID: {{ shipId }}</el-tag>
+    </div>
+
     <div class="container">
         <div class="aside">
-            <h3>🛠️ 船舶结构树 (BOM)</h3>
-            <el-button size="mini" type="success" @click="initTree" style="margin-bottom: 10px;">刷新/重置树</el-button>
-            <el-tree
-                    :data="treeData"
-                    :props="defaultProps"
-                    @node-click="handleNodeClick"
-                    default-expand-all
-                    highlight-current>
-            </el-tree>
+            <div class="tree-toolbar">
+                <el-button type="primary" size="mini" icon="el-icon-refresh" circle @click="loadTree" title="刷新"></el-button>
+                <el-button type="success" size="mini" icon="el-icon-plus" @click="openDialog(null)">根节点</el-button>
+                <el-button type="danger" size="mini" @click="initTree">重置</el-button>
+                <el-button type="info" size="mini" icon="el-icon-notebook-1" @click="viewAuditLogs">日志</el-button>
+            </div>
+            <div class="tree-wrapper">
+                <el-tree
+                        ref="tree"
+                        :data="treeData"
+                        :props="defaultProps"
+                        @node-click="handleNodeClick"
+                        default-expand-all
+                        highlight-current
+                        node-key="id"
+                        draggable
+                        :allow-drop="allowDrop"
+                        @node-drop="handleDrop">
+                    <span class="custom-tree-node" slot-scope="{ node, data }">
+                        <span><i :class="getIcon(data.type)"></i> {{ node.label }}</span>
+                    </span>
+                </el-tree>
+            </div>
         </div>
 
         <div class="main">
-            <div v-if="currentPart">
-                <h2>
-                    {{ currentPart.name }}
-                    <el-tag size="small">{{ currentPart.type }}</el-tag>
-                    <el-button type="danger" size="small" style="float: right" @click="deletePart">删除此节点</el-button>
-                </h2>
-
-                <el-descriptions title="技术参数 (MongoDB Specs)" border v-if="currentPart.specs">
-                    <el-descriptions-item v-for="(val, key) in currentPart.specs" :label="key">{{ val }}</el-descriptions-item>
-                </el-descriptions>
-                <div v-else style="color: #ccc; margin: 10px 0;">暂无技术参数</div>
-
-                <el-divider></el-divider>
-
-                <h3>📄 关联文档</h3>
-                <div style="margin-bottom: 15px;">
-                    <input type="file" ref="fileInput" style="display: none" @change="uploadFile">
-                    <el-button type="primary" size="small" icon="el-icon-upload" @click="$refs.fileInput.click()">上传文档</el-button>
-                </div>
-
-                <el-table :data="docList" style="width: 100%" border>
-                    <el-table-column prop="id" label="ID" width="50"></el-table-column>
-                    <el-table-column prop="title" label="文档标题"></el-table-column>
-                    <el-table-column prop="category" label="分类" width="100"></el-table-column>
-                    <el-table-column prop="createdAt" label="上传时间"></el-table-column>
-                    <el-table-column label="操作" width="150">
-                        <template slot-scope="scope">
-                            <el-button size="mini" type="primary" @click="viewDetail(scope.row.id)">预览/下载</el-button>
-                        </template>
-                    </el-table-column>
-                </el-table>
+            <div class="search-bar">
+                <el-input placeholder="全站搜索文档 (输入标题...)" v-model="searchKeyword" @keyup.enter.native="doSearch" clearable @clear="doSearch" prefix-icon="el-icon-search">
+                    <el-button slot="append" @click="doSearch">搜索</el-button>
+                </el-input>
             </div>
 
+            <div v-if="currentPart || isSearching">
+                <div v-if="isSearching">
+                    <h3>🔍 搜索结果: "{{ searchKeyword }}"</h3>
+                    <el-table :data="docList" border stripe>
+                        <el-table-column prop="title" label="文档标题"></el-table-column>
+                        <el-table-column prop="category" label="分类" width="120"></el-table-column>
+                        <el-table-column label="详情" width="120" align="center">
+                            <template slot-scope="scope"><el-button size="mini" @click="showDocDetail(scope.row.id)">查看</el-button></template>
+                        </el-table-column>
+                    </el-table>
+                </div>
+
+                <div v-else>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                        <div>
+                            <h2 style="margin:0 0 5px 0;"><i :class="getIcon(currentPart.type)"></i> {{ currentPart.name }}</h2>
+                            <el-tag size="mini">{{ currentPart.type }}</el-tag> <span style="color:#999;font-size:12px">ID: {{ currentPart.id }}</span>
+                        </div>
+                        <div>
+                            <el-button type="primary" size="small" icon="el-icon-edit" @click="openDialog(currentPart, true)">编辑</el-button>
+                            <el-button type="success" size="small" icon="el-icon-folder-add" @click="openDialog(currentPart, false)">加子项</el-button>
+                            <el-button type="danger" size="small" icon="el-icon-delete" @click="deletePart">删除</el-button>
+                        </div>
+                    </div>
+
+                    <el-descriptions border :column="2" size="small" title="NoSQL 动态参数">
+                        <template v-if="currentPart.specs && Object.keys(currentPart.specs).length > 0">
+                            <el-descriptions-item v-for="(val, key) in currentPart.specs" :key="key" :label="key">{{ val }}</el-descriptions-item>
+                        </template>
+                        <template v-else><el-descriptions-item label="状态">暂无参数</el-descriptions-item></template>
+                    </el-descriptions>
+
+                    <el-divider content-position="left">关联文档</el-divider>
+
+                    <div style="margin-bottom: 10px;">
+                        <input type="file" ref="fileInput" style="display: none" @change="uploadFile">
+                        <el-button type="primary" size="small" plain icon="el-icon-upload2" @click="$refs.fileInput.click()">上传文档</el-button>
+                    </div>
+
+                    <el-table :data="docList" style="width: 100%" stripe>
+                        <el-table-column prop="title" label="文档标题"></el-table-column>
+                        <el-table-column prop="category" label="分类" width="120">
+                            <template slot-scope="scope"><el-tag size="mini">{{ scope.row.category }}</el-tag></template>
+                        </el-table-column>
+                        <el-table-column prop="createdAt" label="时间" width="160">
+                            <template slot-scope="scope">{{ formatDate(scope.row.createdAt) }}</template>
+                        </el-table-column>
+                        <el-table-column label="操作" width="100" align="center">
+                            <template slot-scope="scope">
+                                <el-button size="mini" type="text" @click="showDocDetail(scope.row.id)">详情/预览</el-button>
+                            </template>
+                        </el-table-column>
+                    </el-table>
+                </div>
+            </div>
             <div v-else class="empty-tip">
-                👈 请在左侧点击一个零件查看详情
+                <i class="el-icon-top-left" style="font-size: 30px;"></i><br>
+                请选择左侧节点或进行搜索
             </div>
         </div>
     </div>
+
+    <el-dialog :title="dialogTitle" :visible.sync="dialogVisible" width="500px">
+        <el-form :model="form" label-width="80px">
+            <el-form-item label="名称" required><el-input v-model="form.name"></el-input></el-form-item>
+            <el-form-item label="类型" required>
+                <el-select v-model="form.type" style="width: 100%"><el-option v-for="t in types" :key="t" :label="t" :value="t"></el-option></el-select>
+            </el-form-item>
+            <div style="background: #f4f4f5; padding: 10px; border-radius: 4px;">
+                <div style="font-size: 12px; color: #909399; margin-bottom: 5px;">动态参数 (Specs)</div>
+                <div v-for="(item, index) in form.kvList" :key="index" class="kv-row">
+                    <el-input v-model="item.key" placeholder="Key" size="small"></el-input>
+                    <el-input v-model="item.val" placeholder="Value" size="small"></el-input>
+                    <el-button type="danger" icon="el-icon-close" circle size="mini" @click="removeKv(index)"></el-button>
+                </div>
+                <el-button type="text" icon="el-icon-plus" size="mini" @click="addKv">添加参数</el-button>
+            </div>
+        </el-form>
+        <div slot="footer"><el-button @click="dialogVisible = false">取消</el-button><el-button type="primary" @click="submitForm">确定</el-button></div>
+    </el-dialog>
+
+    <el-dialog title="文档全息视图" :visible.sync="docDialogVisible" width="600px">
+        <div v-if="currentDocDetail">
+            <el-alert title="NoSQL 优势: 灵活存储元数据与内嵌版本" type="info" :closable="false" style="margin-bottom:10px"></el-alert>
+            <div class="json-box">{{ currentDocDetail.metadata ? JSON.stringify(currentDocDetail.metadata, null, 2) : '{}' }}</div>
+            <h4 style="margin: 15px 0 5px;">版本历史</h4>
+            <div v-for="(v, index) in currentDocDetail.versions" :key="index" style="padding: 10px; border-bottom: 1px solid #eee;">
+                <span style="font-weight: bold;">{{ v.versionNo }}</span>
+                <span style="font-size: 12px; margin-left: 10px;">{{ (v.fileSize/1024).toFixed(1) }} KB</span>
+                <el-link type="primary" :href="v.downloadUrl" target="_blank" style="float: right;">在线预览 / 下载</el-link>
+            </div>
+        </div>
+    </el-dialog>
 </div>
 
 <script src="https://unpkg.com/vue@2/dist/vue.js"></script>
@@ -78,95 +168,89 @@
     new Vue({
         el: '#app',
         data: {
-            treeData: [],
-            defaultProps: { children: 'children', label: 'name' },
-            currentPart: null,
-            docList: [],
-            shipId: 1001 // 这里先写死，或者从 tree 接口动态获取
+            treeData: [], defaultProps: { children: 'children', label: 'name' },
+            currentPart: null, docList: [], shipId: 888, types: ['Ship', 'System', 'Engine', 'Pump', 'Valve', 'Other'],
+            searchKeyword: '', isSearching: false,
+            dialogVisible: false, dialogTitle: '', isEditMode: false, form: { id: null, name: '', type: '', parentId: null, kvList: [] },
+            docDialogVisible: false, currentDocDetail: null
         },
-        mounted() {
-            this.loadTree();
-        },
+        mounted() { this.loadTree(); },
         methods: {
-            // 1. 加载树 (调用你的后端接口)
-            loadTree() {
-                // 如果你的测试接口路径是 /test/tree，这里直接用
-                // 实际建议你把造树逻辑独立出来，这里为了演示方便直接调
-                axios.get('/test/tree').then(res => {
-                    this.treeData = res.data;
-                    // 简单的把 shipId 修正为根节点的 ID (如果需要)
-                    if(this.treeData.length > 0) {
-                        // 假设后端返回的是个列表，第一个是根
-                        // console.log(res.data);
-                    }
-                });
-            },
-            // 2. 刷新重置 (调用你的造数据接口)
-            initTree() {
-                this.$confirm('确定要重置并生成新树吗？', '提示').then(() => {
-                    axios.get('/test/tree').then(res => {
-                        this.treeData = res.data;
-                        this.$message.success('树结构已刷新');
-                    });
-                });
-            },
-            // 3. 点击节点
-            handleNodeClick(data) {
-                this.currentPart = data; // data 就是 ComponentDoc 的数据
-                this.loadDocs(data.id);
-            },
-            // 4. 加载文档列表
-            loadDocs(componentId) {
-                // 调用后端 /api/docs/list
-                // 注意：这里假设你的 shipId 是固定的或者从根节点取的
-                axios.get(`/api/docs/list?shipId=888&componentId=${componentId}`)
-                    .then(res => {
-                        this.docList = res.data;
-                    });
-            },
-            // 5. 上传文件
-            uploadFile(event) {
-                let file = event.target.files[0];
-                if(!file) return;
+            getIcon(type) { const m = { 'Ship': 'el-icon-ship', 'System': 'el-icon-cpu', 'Engine': 'el-icon-odometer' }; return m[type] || 'el-icon-setting'; },
+            formatDate(str) { return str ? str.replace('T', ' ').split('.')[0] : ''; },
+            loadTree() { axios.get(`/api/components/tree?shipId=${this.shipId}`).then(res => this.treeData = res.data); },
 
-                let formData = new FormData();
-                formData.append('file', file);
-                formData.append('shipId', 888); // 保持一致
-                formData.append('componentId', this.currentPart.id);
-                formData.append('title', file.name); // 简单用文件名当标题
-                formData.append('category', 'AutoUpload');
+            // --- 拖拽逻辑修复 ---
+            allowDrop(draggingNode, dropNode, type) {
+                // 【修复】允许所有位置 (inner=放入, prev=插前, next=插后)
+                // 只有这样，Element UI 才会显示那个蓝色的横线(shadow)
+                return true;
+            },
+            handleDrop(draggingNode, dropNode, dropType, ev) {
+                let newParentId = null;
+                if (dropType === 'inner') {
+                    // 放入某节点内部，父节点就是它
+                    newParentId = dropNode.data.id;
+                } else {
+                    // 放入某节点前后 (prev/next)，父节点就是那个节点的父节点
+                    newParentId = dropNode.data.parentId;
+                }
 
-                axios.post('/api/docs/upload', formData).then(res => {
-                    this.$message.success('上传成功');
-                    this.loadDocs(this.currentPart.id); // 刷新列表
-                }).catch(err => {
-                    this.$message.error('上传失败');
-                });
-            },
-            // 6. 查看/下载
-            viewDetail(id) {
-                axios.get(`/api/docs/${id}`).then(res => {
-                    let versions = res.data.versions;
-                    if(versions && versions.length > 0) {
-                        // 直接打开最新版本的 URL
-                        let url = versions[0].downloadUrl;
-                        window.open(url, '_blank');
-                    } else {
-                        this.$message.warning('该文档没有文件');
-                    }
-                });
-            },
-            // 7. 删除节点
-            deletePart() {
-                this.$confirm(`确定要删除 [${this.currentPart.name}] 及其所有子节点和文档吗？`, '危险操作', {
-                    type: 'warning'
-                }).then(() => {
-                    axios.delete(`/api/components/${this.currentPart.id}`).then(res => {
-                        this.$message.success('删除成功');
-                        this.currentPart = null;
-                        this.loadTree(); // 重新加载树
+                // 如果 newParentId 为 null，说明拖到了根层级，传 'root' 给后端
+                const targetId = newParentId || 'root';
+
+                axios.put(`/api/components/${draggingNode.data.id}/move`, null, { params: { newParentId: targetId } })
+                    .then(() => {
+                        this.$message.success('移动成功');
+                        this.loadTree(); // 必须刷新，确保 ancestors 正确
                     });
+            },
+
+            // 搜索
+            doSearch() {
+                if(!this.searchKeyword) { this.isSearching = false; if(this.currentPart) this.loadDocs(this.currentPart.id); return; }
+                this.isSearching = true; this.currentPart = null; this.$refs.tree.setCurrentKey(null);
+                axios.get(`/api/docs/list`, { params: { shipId: this.shipId, keyword: this.searchKeyword } })
+                    .then(res => this.docList = res.data);
+            },
+
+            // 其他逻辑
+            handleNodeClick(data) { this.isSearching = false; this.searchKeyword = ''; this.currentPart = data; this.loadDocs(data.id); },
+            loadDocs(id) { axios.get(`/api/docs/list?shipId=${this.shipId}&componentId=${id}`).then(res => this.docList = res.data); },
+            showDocDetail(id) { axios.get(`/api/docs/${id}`).then(res => { this.currentDocDetail = res.data; this.docDialogVisible = true; }); },
+
+            // 审计日志入口 (简单弹窗提示)
+            viewAuditLogs() {
+                this.$alert('请前往 Mongo Express (http://localhost:8081) 查看 system_audit_logs 集合。', '审计日志', { confirmButtonText: '知道了' });
+            },
+
+            // 增删改
+            openDialog(node, isEdit) {
+                this.isEditMode = isEdit; this.form.kvList = [];
+                if (isEdit) {
+                    this.dialogTitle = `编辑: ${node.name}`; this.form.id = node.id; this.form.name = node.name; this.form.type = node.type;
+                    if(node.specs) for(let k in node.specs) this.form.kvList.push({key:k, val:node.specs[k]});
+                } else {
+                    this.dialogTitle = node ? `新增子节点` : '新增根节点'; this.form.id = null; this.form.name = ''; this.form.type = ''; this.form.parentId = node ? node.id : null;
+                }
+                this.dialogVisible = true;
+            },
+            addKv() { this.form.kvList.push({ key: '', val: '' }); },
+            removeKv(index) { this.form.kvList.splice(index, 1); },
+            submitForm() {
+                let specs = {}; this.form.kvList.forEach(i => { if(i.key) specs[i.key] = i.val });
+                let payload = { shipId: this.shipId, name: this.form.name, type: this.form.type, specs: specs, parentId: this.form.parentId };
+                let req = this.isEditMode ? axios.put(`/api/components/${this.form.id}`, payload) : axios.post('/api/components', payload);
+                req.then(() => { this.$message.success('成功'); this.dialogVisible = false; this.loadTree();
+                    if(this.isEditMode && this.currentPart) { this.currentPart.name = this.form.name; this.currentPart.specs = specs; } // 简单刷新界面
                 });
+            },
+            initTree() { this.$confirm('重置？').then(() => axios.get('/test/tree').then(res => { this.treeData = res.data; this.loadTree(); })); },
+            deletePart() { this.$confirm('删除？').then(() => axios.delete(`/api/components/${this.currentPart.id}`).then(() => { this.$message.success('已删除'); this.currentPart = null; this.loadTree(); })); },
+            uploadFile(e) {
+                let f = e.target.files[0]; if(!f) return;
+                let d = new FormData(); d.append('file', f); d.append('shipId', this.shipId); d.append('componentId', this.currentPart.id); d.append('title', f.name); d.append('category', 'Manual');
+                const l = this.$loading(); axios.post('/api/docs/upload', d).then(() => { l.close(); this.$message.success('成功'); this.loadDocs(this.currentPart.id); }).catch(()=>l.close());
             }
         }
     })

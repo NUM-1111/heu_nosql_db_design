@@ -10,6 +10,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import cn.hutool.core.util.StrUtil; // 记得引入 Hutool
+import com.university.shipmanager.entity.mongo.AuditLog;
+import com.university.shipmanager.repository.AuditLogRepository;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -25,6 +28,7 @@ public class DocumentService {
     private final DocIndexMapper docIndexMapper;       // MySQL 操作
     private final ShipDocumentRepository mongoRepository; // Mongo 操作
     private final com.university.shipmanager.common.MinioUtil minioUtil;
+    private final AuditLogRepository auditLogRepository;
 
 
     /**
@@ -121,15 +125,21 @@ public class DocumentService {
     }
 
     /**
-     * 查询文档列表 (支持按 船 或 按零件 筛选)
+     * 【升级】查询文档列表 (支持 搜索关键字)
      */
-    public List<DocIndex> listDocs(Long shipId, String componentId) {
+    public List<DocIndex> listDocs(Long shipId, String componentId, String keyword) {
         LambdaQueryWrapper<DocIndex> wrapper = new LambdaQueryWrapper<>();
 
         wrapper.eq(DocIndex::getShipId, shipId);
 
-        // 如果传了 componentId，就查这个零件的；没传就查整艘船的(或者只查属于船级的文件，看你业务定义)
-        if (componentId != null && !componentId.isEmpty()) {
+        // 如果有关键字，就模糊查询标题 (SQL: title LIKE %keyword%)
+        if (StrUtil.isNotBlank(keyword)) {
+            wrapper.like(DocIndex::getTitle, keyword);
+        }
+
+        // 只有在没搜索关键字时，才强制按 componentId 过滤
+        // 逻辑：如果我在搜"合同"，我希望看到整艘船所有的合同，不用管它在哪
+        if (StrUtil.isBlank(keyword) && StrUtil.isNotBlank(componentId)) {
             wrapper.eq(DocIndex::getComponentId, componentId);
         }
 
@@ -171,6 +181,15 @@ public class DocumentService {
 
             // D. 删掉 MySQL 里的记录
             docIndexMapper.deleteById(doc.getId());
+
+            // 【新增】记录审计日志
+            AuditLog log = new AuditLog();
+            log.setAction("DELETE_DOC");
+            log.setTargetType("Document");
+            log.setTargetName(doc.getTitle());
+            log.setOperator("admin"); // 暂时写死
+            log.setDetail("级联删除了文档，原所属零件ID: " + doc.getComponentId());
+            auditLogRepository.save(log);
         }
 
         log.info("级联删除了 {} 个文档，涉及零件: {}", docsToDelete.size(), componentIds);

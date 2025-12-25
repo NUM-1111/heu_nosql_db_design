@@ -1,5 +1,6 @@
 package com.university.shipmanager.controller;
 
+import com.university.shipmanager.entity.mysql.DocIndex;
 import com.university.shipmanager.service.DocumentService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -57,15 +58,16 @@ public class DocumentController {
     }
 
     /**
-     * 获取文档列表
-     * GET /api/docs/list?shipId=1001
+     * 获取文档列表 (支持搜索)
+     * GET /api/docs/list?shipId=888&keyword=手册
      */
     @GetMapping("/list")
-    public List<com.university.shipmanager.entity.mysql.DocIndex> list(
+    public List<DocIndex> list(
             @RequestParam Long shipId,
-            @RequestParam(required = false) String componentId
+            @RequestParam(required = false) String componentId,
+            @RequestParam(required = false) String keyword // 【新增】
     ) {
-        return documentService.listDocs(shipId, componentId);
+        return documentService.listDocs(shipId, componentId, keyword);
     }
 
     /**

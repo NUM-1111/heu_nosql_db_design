@@ -1,28 +1,85 @@
 package com.university.shipmanager.controller;
 
+import cn.hutool.core.lang.tree.Tree;
+import com.university.shipmanager.entity.mongo.ComponentDoc;
 import com.university.shipmanager.service.ComponentService;
+import lombok.Data;
 import lombok.RequiredArgsConstructor;
-import org.springframework.web.bind.annotation.DeleteMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/components")
-@RequiredArgsConstructor // 1. 自动生成构造函数，注入 final 字段
+@RequiredArgsConstructor
 public class ComponentController {
 
-    // 2. 注入 Service (必须是 final)
     private final ComponentService componentService;
 
     /**
-     * 级联删除接口
-     * DELETE /api/components/{id}
+     * 获取零件树
      */
-    @DeleteMapping("{id}")
+    @GetMapping("/tree")
+    public List<Tree<String>> getTree(@RequestParam Long shipId) {
+        return componentService.getShipBomTree(shipId);
+    }
+
+    /**
+     * 【新增】创建新零件 (节点)
+     * POST /api/components
+     */
+    @PostMapping
+    public ComponentDoc create(@RequestBody CreateRequest request) {
+        return componentService.createComponent(
+                request.getShipId(),
+                request.getName(),
+                request.getType(),
+                request.getParentId(),
+                request.getSpecs()
+        );
+    }
+
+    /**
+     * 【新增】更新零件信息
+     * PUT /api/components/{id}
+     */
+    @PutMapping("/{id}")
+    public ComponentDoc update(@PathVariable String id, @RequestBody CreateRequest request) {
+        return componentService.updateComponent(
+                id,
+                request.getName(),
+                request.getType(),
+                request.getSpecs()
+        );
+    }
+
+    /**
+     * 删除接口
+     */
+    @DeleteMapping("/{id}")
     public String deleteComponent(@PathVariable String id) {
-        // 调用 Service 执行“毁灭打击”
         componentService.deleteComponentAndChildren(id);
-        return "删除成功！该节点及其子树、关联文档、物理文件已全部清理。";
+        return "删除成功";
+    }
+
+    /**
+     * 【新增】拖拽移动节点接口
+     * PUT /api/components/{id}/move?newParentId=xxx
+     */
+    @PutMapping("/{id}/move")
+    public String move(@PathVariable String id, @RequestParam String newParentId) {
+        componentService.moveComponent(id, newParentId);
+        return "移动成功";
+    }
+
+    // --- DTO: 接收前端参数 ---
+    @Data
+    public static class CreateRequest {
+        private Long shipId;
+        private String name;
+        private String type;     // System, Engine, Pump...
+        private String parentId; // 父节点ID (如果是根节点则为 null)
+        private Map<String, Object> specs; // 动态参数
     }
 }

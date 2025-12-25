@@ -4,11 +4,15 @@ import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.lang.tree.Tree;
 import cn.hutool.core.lang.tree.TreeNodeConfig;
 import cn.hutool.core.lang.tree.TreeUtil;
+import cn.hutool.core.util.StrUtil;
+import com.university.shipmanager.entity.mongo.AuditLog;
 import com.university.shipmanager.entity.mongo.ComponentDoc;
+import com.university.shipmanager.repository.AuditLogRepository;
 import com.university.shipmanager.repository.ComponentRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -21,109 +25,141 @@ public class ComponentService {
 
     private final ComponentRepository componentRepository;
     private final DocumentService documentService;
+    private final AuditLogRepository auditLogRepository; // 【修复】注入日志库
 
-    /**
-     * 创建一个新部件 (节点)
-     */
+    // ... createComponent 和 getShipBomTree 保持不变 ...
     public ComponentDoc createComponent(Long shipId, String name, String type, String parentId, Map<String, Object> specs) {
+        if (StrUtil.isBlank(name) || StrUtil.isBlank(type)) throw new IllegalArgumentException("名称和类型不能为空");
         ComponentDoc component = new ComponentDoc();
         component.setShipId(shipId);
         component.setName(name);
         component.setType(type);
-        component.setSpecs(specs); // 动态参数直接存
-
-        // 处理树形关系
+        component.setSpecs(specs);
         if (parentId != null) {
             component.setParentId(parentId);
-            // 查出父节点，继承它的祖先列表
-            ComponentDoc parent = componentRepository.findById(parentId)
-                    .orElseThrow(() -> new RuntimeException("父节点不存在"));
-
-            // 核心逻辑：我的祖先 = 父节点的祖先 + 父节点自己
+            ComponentDoc parent = componentRepository.findById(parentId).orElseThrow(() -> new RuntimeException("父节点不存在"));
             List<String> ancestors = new ArrayList<>();
-            if (parent.getAncestors() != null) {
-                ancestors.addAll(parent.getAncestors());
-            }
+            if (parent.getAncestors() != null) ancestors.addAll(parent.getAncestors());
             ancestors.add(parent.getId());
             component.setAncestors(ancestors);
         } else {
-            // 根节点
             component.setAncestors(new ArrayList<>());
         }
-
         return componentRepository.save(component);
     }
 
-    /**
-     * 【高光时刻】获取某艘船的完整 BOM 树
-     * 修复说明：修正了 Lambda 参数顺序，node 是树节点，data 是数据库查出来的实体
-     */
     public List<Tree<String>> getShipBomTree(Long shipId) {
-        // 1. 一次查询取出所有部件
         List<ComponentDoc> allComponents = componentRepository.findByShipId(shipId);
-
-        if (CollUtil.isEmpty(allComponents)) {
-            return new ArrayList<>();
-        }
-
-        // 2. 配置树形构建器
-        TreeNodeConfig treeNodeConfig = new TreeNodeConfig();
-        treeNodeConfig.setIdKey("id");
-        treeNodeConfig.setParentIdKey("parentId");
-        treeNodeConfig.setNameKey("name");
-        treeNodeConfig.setDeep(5);
-
-        // 3. 内存中组装树
-        // 修正参数顺序：(原始数据, 树节点)
-        // Hutool 规则：第一个参数是 List 里的实体，第二个参数是构建出来的 Tree 对象
-        return TreeUtil.build(allComponents, null, treeNodeConfig,
-                (component, treeNode) -> {
-                    // 逻辑：把 component (来源) 的数据 -> 塞给 treeNode (目标)
-
-                    treeNode.setId(component.getId());
-                    treeNode.setParentId(component.getParentId());
-                    treeNode.setName(component.getName());
-
-                    // 扩展字段
-                    treeNode.putExtra("type", component.getType());
-                    treeNode.putExtra("specs", component.getSpecs());
-                });
+        if (CollUtil.isEmpty(allComponents)) return new ArrayList<>();
+        TreeNodeConfig config = new TreeNodeConfig();
+        config.setIdKey("id");
+        config.setParentIdKey("parentId");
+        config.setNameKey("name");
+        config.setDeep(5);
+        return TreeUtil.build(allComponents, null, config, (component, treeNode) -> {
+            treeNode.setId(component.getId());
+            treeNode.setParentId(component.getParentId());
+            treeNode.setName(component.getName());
+            treeNode.putExtra("type", component.getType());
+            treeNode.putExtra("specs", component.getSpecs());
+        });
     }
 
-    /**
-     * 【高光时刻 2】查询某个系统的所有子孙节点 (比如：删除"动力系统"前，查出它下面几千个零件)
-     * 只需要查 ancestors 包含该 ID 即可，完全不需要递归！
-     */
+    public ComponentDoc updateComponent(String id, String name, String type, Map<String, Object> specs) {
+        if (StrUtil.isBlank(name) || StrUtil.isBlank(type)) throw new IllegalArgumentException("名称和类型不能为空");
+        ComponentDoc doc = componentRepository.findById(id).orElseThrow(() -> new RuntimeException("节点不存在"));
+        doc.setName(name);
+        doc.setType(type);
+        if (specs != null) doc.setSpecs(specs);
+        return componentRepository.save(doc);
+    }
+
     public List<ComponentDoc> getSubTree(String systemId) {
-        // 这一句查询，体现了 MongoDB 文档设计的精髓
         return componentRepository.findByAncestorsContaining(systemId);
     }
 
     /**
-     * 【高光时刻 3】级联删除某个节点及其所有子孙
+     * 【修复】级联删除 + 审计日志
      */
-    @org.springframework.transaction.annotation.Transactional
+    @Transactional
     public void deleteComponentAndChildren(String componentId) {
-        // 1. 找出所有子孙节点 (包括它自己)
-        // 逻辑：先查自己，再查所有 ancestors 包含自己的
         ComponentDoc self = componentRepository.findById(componentId).orElseThrow(() -> new RuntimeException("节点不存在"));
-
-        // 查子孙 (利用 MongoDB 的 ancestors 数组索引，速度极快)
         List<ComponentDoc> children = componentRepository.findByAncestorsContaining(componentId);
 
-        // 合并：自己 + 子孙
         List<String> allIdsToDelete = new ArrayList<>();
         allIdsToDelete.add(self.getId());
         children.forEach(c -> allIdsToDelete.add(c.getId()));
 
-        log.info("准备删除节点 {} 及其子孙，共 {} 个节点", componentId, allIdsToDelete.size());
+        log.info("准备删除节点 {} 及其子孙，共 {} 个", componentId, allIdsToDelete.size());
 
-        // 2. 【联动】呼叫 DocumentService，先把这些节点挂的文档全删了 (含 MinIO 文件)
+        // 1. 删文档
         documentService.deleteDocumentsByComponentIds(allIdsToDelete);
 
-        // 3. 最后在 MongoDB 里删掉这些 Component 节点
+        // 2. 删零件
         componentRepository.deleteAllById(allIdsToDelete);
 
-        log.info("零件树删除完毕");
+        // 3. 【修复】记录“删除零件”的审计日志 (之前只记录了删文档)
+        AuditLog auditLog = new AuditLog();
+        auditLog.setAction("DELETE_COMPONENT");
+        auditLog.setTargetType("Component");
+        auditLog.setTargetName(self.getName() + " (及其子节点)");
+        auditLog.setOperator("admin");
+        auditLog.setDetail("删除了节点ID: " + componentId + ", 影响节点数: " + allIdsToDelete.size());
+        auditLogRepository.save(auditLog); // 保存到 Mongo
+    }
+
+    /**
+     * 【修复】移动节点 (支持移动到根节点)
+     */
+    @Transactional
+    public void moveComponent(String id, String newParentId) {
+        ComponentDoc node = componentRepository.findById(id).orElseThrow(() -> new RuntimeException("节点不存在"));
+
+        // 1. 计算新祖先
+        List<String> newAncestors = new ArrayList<>();
+        String actualParentId = null;
+
+        if (StrUtil.isNotBlank(newParentId) && !"root".equals(newParentId)) {
+            // A. 移动到某个父节点下
+            ComponentDoc newParent = componentRepository.findById(newParentId)
+                    .orElseThrow(() -> new RuntimeException("目标父节点不存在"));
+            if (newParent.getAncestors() != null && newParent.getAncestors().contains(id)) {
+                throw new RuntimeException("不能把自己移动到自己的子节点下！");
+            }
+            if (newParent.getAncestors() != null) {
+                newAncestors.addAll(newParent.getAncestors());
+            }
+            newAncestors.add(newParent.getId());
+            actualParentId = newParentId;
+        } else {
+            // B. 【修复】移动到最外层 (根节点)
+            // 保持 ancestors 为空，parentId 为 null
+            actualParentId = null;
+        }
+
+        // 2. 更新自己
+        node.setParentId(actualParentId);
+        node.setAncestors(newAncestors);
+        componentRepository.save(node);
+
+        // 3. 更新子孙 (逻辑简化：重新计算所有子孙的路径)
+        // 这里的逻辑稍微复杂，为了 Demo 稳定，我们假设子孙跟随移动。
+        // 生产环境通常需要递归更新子孙的 ancestors。
+        // 简单修复：如果只是 Demo 演示，只要 TreeUtil 重新构建时 parentId 对了，树就能显示对。
+        // 但为了数据一致性，建议重建子孙的 ancestors。
+        List<ComponentDoc> children = componentRepository.findByAncestorsContaining(id);
+        for (ComponentDoc child : children) {
+            // 重新计算子孙的 ancestors: 新的 ancestors + 我 + 我之后的路径
+            List<String> childAncestors = child.getAncestors();
+            int myIndex = childAncestors.indexOf(id);
+
+            List<String> updated = new ArrayList<>(newAncestors);
+            updated.add(id);
+            if (myIndex != -1 && myIndex + 1 < childAncestors.size()) {
+                updated.addAll(childAncestors.subList(myIndex + 1, childAncestors.size()));
+            }
+            child.setAncestors(updated);
+            componentRepository.save(child);
+        }
     }
 }
