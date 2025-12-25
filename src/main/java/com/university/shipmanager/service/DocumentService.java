@@ -137,6 +137,47 @@ public class DocumentService {
         return docIndexMapper.selectList(wrapper);
     }
 
+    /**
+     * 【级联删除核心】根据一组 Component ID，删除它们关联的所有文档
+     * 步骤：查 MySQL -> 删 MinIO 文件 -> 删 Mongo 详情 -> 删 MySQL 索引
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void deleteDocumentsByComponentIds(List<String> componentIds) {
+        if (componentIds == null || componentIds.isEmpty()) return;
+
+        // 1. 先去 MySQL 查出这就这几个零件下所有的文档
+        // SQL: SELECT * FROM doc_index WHERE component_id IN ('id1', 'id2', ...)
+        LambdaQueryWrapper<DocIndex> wrapper = new LambdaQueryWrapper<>();
+        wrapper.in(DocIndex::getComponentId, componentIds);
+        List<DocIndex> docsToDelete = docIndexMapper.selectList(wrapper);
+
+        if (docsToDelete.isEmpty()) return;
+
+        // 2. 遍历每一个文档，执行删除
+        for (DocIndex doc : docsToDelete) {
+            // A. 查出 MongoDB 里的详情 (为了拿到文件名去删 MinIO)
+            ShipDocument mongoDoc = mongoRepository.findById(doc.getMongoDocId()).orElse(null);
+
+            if (mongoDoc != null && mongoDoc.getVersions() != null) {
+                // B. 遍历所有版本，删掉 MinIO 里的文件
+                for (ShipDocument.DocVersion v : mongoDoc.getVersions()) {
+                    if (v.getStoragePath() != null) {
+                        minioUtil.removeFile(v.getStoragePath()); // 🧹 清理硬盘
+                    }
+                }
+                // C. 删掉 MongoDB 里的记录
+                mongoRepository.deleteById(doc.getMongoDocId());
+            }
+
+            // D. 删掉 MySQL 里的记录
+            docIndexMapper.deleteById(doc.getId());
+        }
+
+        log.info("级联删除了 {} 个文档，涉及零件: {}", docsToDelete.size(), componentIds);
+    }
+
+
+
     // --- 在 Service 内部或单独定义一个 VO 类 (View Object) ---
     @Data
     public static class DocumentDetailVO {

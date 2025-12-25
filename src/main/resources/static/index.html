@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>船舶工程文档管理系统</title>
+    <link rel="stylesheet" href="https://unpkg.com/element-ui/lib/theme-chalk/index.css">
+    <style>
+        body { margin: 0; padding: 0; font-family: "Helvetica Neue",Helvetica,"PingFang SC",Arial,sans-serif; }
+        .header { background-color: #409EFF; color: white; padding: 20px; font-size: 24px; font-weight: bold; }
+        .container { display: flex; height: calc(100vh - 70px); }
+        .aside { width: 300px; border-right: 1px solid #eee; padding: 20px; overflow-y: auto; }
+        .main { flex: 1; padding: 20px; overflow-y: auto; }
+        .empty-tip { color: #909399; text-align: center; margin-top: 100px; }
+    </style>
+</head>
+<body>
+<div id="app">
+    <div class="header">🚢 船舶工程文档管理系统 (NoSQL Demo)</div>
+    <div class="container">
+        <div class="aside">
+            <h3>🛠️ 船舶结构树 (BOM)</h3>
+            <el-button size="mini" type="success" @click="initTree" style="margin-bottom: 10px;">刷新/重置树</el-button>
+            <el-tree
+                    :data="treeData"
+                    :props="defaultProps"
+                    @node-click="handleNodeClick"
+                    default-expand-all
+                    highlight-current>
+            </el-tree>
+        </div>
+
+        <div class="main">
+            <div v-if="currentPart">
+                <h2>
+                    {{ currentPart.name }}
+                    <el-tag size="small">{{ currentPart.type }}</el-tag>
+                    <el-button type="danger" size="small" style="float: right" @click="deletePart">删除此节点</el-button>
+                </h2>
+
+                <el-descriptions title="技术参数 (MongoDB Specs)" border v-if="currentPart.specs">
+                    <el-descriptions-item v-for="(val, key) in currentPart.specs" :label="key">{{ val }}</el-descriptions-item>
+                </el-descriptions>
+                <div v-else style="color: #ccc; margin: 10px 0;">暂无技术参数</div>
+
+                <el-divider></el-divider>
+
+                <h3>📄 关联文档</h3>
+                <div style="margin-bottom: 15px;">
+                    <input type="file" ref="fileInput" style="display: none" @change="uploadFile">
+                    <el-button type="primary" size="small" icon="el-icon-upload" @click="$refs.fileInput.click()">上传文档</el-button>
+                </div>
+
+                <el-table :data="docList" style="width: 100%" border>
+                    <el-table-column prop="id" label="ID" width="50"></el-table-column>
+                    <el-table-column prop="title" label="文档标题"></el-table-column>
+                    <el-table-column prop="category" label="分类" width="100"></el-table-column>
+                    <el-table-column prop="createdAt" label="上传时间"></el-table-column>
+                    <el-table-column label="操作" width="150">
+                        <template slot-scope="scope">
+                            <el-button size="mini" type="primary" @click="viewDetail(scope.row.id)">预览/下载</el-button>
+                        </template>
+                    </el-table-column>
+                </el-table>
+            </div>
+
+            <div v-else class="empty-tip">
+                👈 请在左侧点击一个零件查看详情
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://unpkg.com/vue@2/dist/vue.js"></script>
+<script src="https://unpkg.com/element-ui/lib/index.js"></script>
+<script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+
+<script>
+    new Vue({
+        el: '#app',
+        data: {
+            treeData: [],
+            defaultProps: { children: 'children', label: 'name' },
+            currentPart: null,
+            docList: [],
+            shipId: 1001 // 这里先写死，或者从 tree 接口动态获取
+        },
+        mounted() {
+            this.loadTree();
+        },
+        methods: {
+            // 1. 加载树 (调用你的后端接口)
+            loadTree() {
+                // 如果你的测试接口路径是 /test/tree，这里直接用
+                // 实际建议你把造树逻辑独立出来，这里为了演示方便直接调
+                axios.get('/test/tree').then(res => {
+                    this.treeData = res.data;
+                    // 简单的把 shipId 修正为根节点的 ID (如果需要)
+                    if(this.treeData.length > 0) {
+                        // 假设后端返回的是个列表，第一个是根
+                        // console.log(res.data);
+                    }
+                });
+            },
+            // 2. 刷新重置 (调用你的造数据接口)
+            initTree() {
+                this.$confirm('确定要重置并生成新树吗？', '提示').then(() => {
+                    axios.get('/test/tree').then(res => {
+                        this.treeData = res.data;
+                        this.$message.success('树结构已刷新');
+                    });
+                });
+            },
+            // 3. 点击节点
+            handleNodeClick(data) {
+                this.currentPart = data; // data 就是 ComponentDoc 的数据
+                this.loadDocs(data.id);
+            },
+            // 4. 加载文档列表
+            loadDocs(componentId) {
+                // 调用后端 /api/docs/list
+                // 注意：这里假设你的 shipId 是固定的或者从根节点取的
+                axios.get(`/api/docs/list?shipId=888&componentId=${componentId}`)
+                    .then(res => {
+                        this.docList = res.data;
+                    });
+            },
+            // 5. 上传文件
+            uploadFile(event) {
+                let file = event.target.files[0];
+                if(!file) return;
+
+                let formData = new FormData();
+                formData.append('file', file);
+                formData.append('shipId', 888); // 保持一致
+                formData.append('componentId', this.currentPart.id);
+                formData.append('title', file.name); // 简单用文件名当标题
+                formData.append('category', 'AutoUpload');
+
+                axios.post('/api/docs/upload', formData).then(res => {
+                    this.$message.success('上传成功');
+                    this.loadDocs(this.currentPart.id); // 刷新列表
+                }).catch(err => {
+                    this.$message.error('上传失败');
+                });
+            },
+            // 6. 查看/下载
+            viewDetail(id) {
+                axios.get(`/api/docs/${id}`).then(res => {
+                    let versions = res.data.versions;
+                    if(versions && versions.length > 0) {
+                        // 直接打开最新版本的 URL
+                        let url = versions[0].downloadUrl;
+                        window.open(url, '_blank');
+                    } else {
+                        this.$message.warning('该文档没有文件');
+                    }
+                });
+            },
+            // 7. 删除节点
+            deletePart() {
+                this.$confirm(`确定要删除 [${this.currentPart.name}] 及其所有子节点和文档吗？`, '危险操作', {
+                    type: 'warning'
+                }).then(() => {
+                    axios.delete(`/api/components/${this.currentPart.id}`).then(res => {
+                        this.$message.success('删除成功');
+                        this.currentPart = null;
+                        this.loadTree(); // 重新加载树
+                    });
+                });
+            }
+        }
+    })
+</script>
+</body>
+</html>

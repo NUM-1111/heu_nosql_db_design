@@ -20,6 +20,7 @@ import java.util.Map;
 public class ComponentService {
 
     private final ComponentRepository componentRepository;
+    private final DocumentService documentService;
 
     /**
      * 创建一个新部件 (节点)
@@ -96,5 +97,33 @@ public class ComponentService {
     public List<ComponentDoc> getSubTree(String systemId) {
         // 这一句查询，体现了 MongoDB 文档设计的精髓
         return componentRepository.findByAncestorsContaining(systemId);
+    }
+
+    /**
+     * 【高光时刻 3】级联删除某个节点及其所有子孙
+     */
+    @org.springframework.transaction.annotation.Transactional
+    public void deleteComponentAndChildren(String componentId) {
+        // 1. 找出所有子孙节点 (包括它自己)
+        // 逻辑：先查自己，再查所有 ancestors 包含自己的
+        ComponentDoc self = componentRepository.findById(componentId).orElseThrow(() -> new RuntimeException("节点不存在"));
+
+        // 查子孙 (利用 MongoDB 的 ancestors 数组索引，速度极快)
+        List<ComponentDoc> children = componentRepository.findByAncestorsContaining(componentId);
+
+        // 合并：自己 + 子孙
+        List<String> allIdsToDelete = new ArrayList<>();
+        allIdsToDelete.add(self.getId());
+        children.forEach(c -> allIdsToDelete.add(c.getId()));
+
+        log.info("准备删除节点 {} 及其子孙，共 {} 个节点", componentId, allIdsToDelete.size());
+
+        // 2. 【联动】呼叫 DocumentService，先把这些节点挂的文档全删了 (含 MinIO 文件)
+        documentService.deleteDocumentsByComponentIds(allIdsToDelete);
+
+        // 3. 最后在 MongoDB 里删掉这些 Component 节点
+        componentRepository.deleteAllById(allIdsToDelete);
+
+        log.info("零件树删除完毕");
     }
 }
