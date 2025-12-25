@@ -26,6 +26,8 @@ public class DocIndex {
 
     // --- 核心指针 ---
     private String mongoDocId; // 指向 MongoDB 中 ship_document_details 的 _id
+    private String componentId;
 
     private LocalDateTime createdAt;
+
 }
